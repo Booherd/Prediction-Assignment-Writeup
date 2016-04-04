@@ -1,0 +1,77 @@
+---
+title: "Prediction Assignment Writeup"
+author: "Dustin B"
+date: "April 3, 2016"
+output: html_document
+---
+
+##Summary
+The "classe" variable in the dataset refers to the quality of exercise.  This study seeks to develop a model to predict that variable based on the measurement variables in the dataset.
+
+##Loading Data and Packages
+```{r}
+library(caret)
+library(randomForest)
+library(rpart) 
+library(rpart.plot)
+library(ggplot2)
+```
+data can be directly downloaded from link:
+```{r}
+traindata <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", na.strings=c("NA","#DIV/0!",""))
+testdata <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", na.strings=c("NA","#DIV/0!",""))
+```
+The seed is set in order to make the results reproducible.  The value itself does not matter.
+```{r}
+set.seed(1979)
+```
+##Cleaning Data
+The dataset has a huge number of variables, most of which are likely not relevant to determining the "classe".  First we can remove the first seven variables which contain index numbers, names of participants, and time windows.  These could potentially skew our results if not removed since some are numeric.
+```{r}
+traindata <- traindata[, -(1:7)]
+testdata  <- testdata[, -(1:7)] 
+```
+Many of the columns have a very high number of NA values.  We will remove all columns where a majority of the observed values are NA.
+```{r}
+naframe <- as.vector(colMeans(is.na(traindata)))
+namost <- naframe > .60
+traindata <- traindata[,!namost]
+testdata <- testdata[,!namost]
+```
+In this case all of the columns that have any NAs have more than 90% NAs, but the operation here is set for a 60% threshold.  The testdata must be altered in the same way that the training data is so that we can apply our models later.
+
+##Build Training Data
+Though we have a training set and a test set, we want to split part of the training data into a testing set so that we can cross-validate and evaluate our models for use on the test data.
+```{r}
+inTrain <- createDataPartition(y=traindata$classe,p=.70,list=FALSE)
+trainingset <- traindata[inTrain,]
+validationset <- traindata[-inTrain,]
+```
+
+##Models
+First we will try a tree model to see if that is a sufficient prediction method.
+```{r}
+treemodel <- rpart(classe ~ ., data=trainingset, method="class")
+```
+We can plot the tree to show the complexity.
+```{r}
+rpart.plot(treemodel, main="Classe Tree",extra=100)
+```
+The high number of branches makes the tree difficult to interpret.  We can test this model on our validation data subset:
+```{r}
+treeprediction <- predict(treemodel, validationset, type = "class")
+confusionMatrix(treeprediction, validationset$classe)
+```
+The confusionmatrix shows our in-sample accuracy as just below 75%.  That is a high expected out of sample error rate (25%).
+The next model to try is a Random Forest model.  We set the "ntree" parameter to 100 to limit the amount of processing time to run this operation. 
+```{r}
+rfmodel <- train(classe ~. , data=trainingset, method="rf",ntree=100)
+rfprediction <- predict(rfmodel, validationset, type = "raw")
+confusionMatrix(rfprediction, validationset$classe)
+```
+Our accuracy shown here is over 99%, giving us an expected out-of-sample error rate of less than 1%.
+##Apply Best Model to Test Data
+The randomforest model that we constructed can be applied to the test data to accurately predict the classe variable for the 20 test cases.
+```{r}
+testresults <- predict(rfmodel, testdata, type="raw")
+```
